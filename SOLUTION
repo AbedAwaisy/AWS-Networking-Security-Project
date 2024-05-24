@@ -1,26 +1,40 @@
 Local DNS Server IP
 -------------------
-<ip-here>
-
+10.0.0.2
 
 
 Default gateway IP
 -------------------
-<ip-here>
+10.0.0.1
 
 
 
 DHCP IP allocation sys-logs
 -------------------
-<logs-here>
+2024-05-22 16:53:09,192 - dhcp.py[DEBUG]: Performing a dhcp discovery on enX0
+2024-05-22 16:53:09,225 - subp.py[DEBUG]: Running command ['/usr/sbin/dhcpcd', '--ipv4only', '--waitip', '--persistent', '--noarp', '--script=/bin/true', 'enX0'] with allowed return codes [0] (shell=False, capture=True)
+2024-05-22 16:53:09,720 - subp.py[DEBUG]: command ['/usr/sbin/dhcpcd', '--ipv4only', '--waitip', '--persistent', '--noarp', '--script=/bin/true', 'enX0'] took 0.4s to run
+2024-05-22 16:53:09,720 - subp.py[DEBUG]: Running command ['/usr/sbin/dhcpcd', '--dumplease', '--ipv4only', 'enX0'] with allowed return codes [0] (shell=False, capture=True)
+2024-05-22 16:53:09,725 - dhcp.py[DEBUG]: Parsing dhcpcd lease for interface enX0: 'reason=BOUND\ninterface=enX0\nprotocol=dhcp\nip_address=10.0.0.223\nsubnet_cidr=24\nnetwork_number=10.0.0.0\nsubnet_mask=255.255.255.0\nrouters=10.0.0.1\ndomain_name_servers=10.0.0.2\nhost_name=ip-10-0-0-223\ndomain_name=us-east-2.compute.internal\ninterface_mtu=9001\nbroadcast_address=10.0.0.255\ndhcp_lease_time=3600\ndhcp_message_type=5\ndhcp_server_identifier=10.0.0.1\ndhcp_renewal_time=1800\ndhcp_rebinding_time=3150\n'
+
 
 
 
 Public to private num of hops
 -------------------
-<answer-here>
-
+ 1  10.0.1.205 (10.0.1.205)  1.243 ms  1.235 ms  1.232 ms
+Both instances are in the same VPC but different subnets. They are connected to the same public route table, which allows direct routing between subnets.
 
 DNS queries from the private instance
 -------------------
-<answer-here>
+Yes, because AWS VPC provides a built-in DNS resolver for instances launched within the VPC. This DNS resolver is accessible at the IP address 169.254.169.253 or via the link-local address 127.0.0.53.
+And its used here:
+ubuntu@ip-10-0-1-205:~$ nslookup www.google.com
+Server:		127.0.0.53
+Address:	127.0.0.53#53
+
+Non-authoritative answer:
+Name:	www.google.com
+Address: 142.250.191.100
+Name:	www.google.com
+Address: 2607:f8b0:4009:817::2004

@@ -7,10 +7,11 @@ if [ $# -ne 1 ]; then
 fi
 
 PRIVATE_IP=$1
+KEY_PATH="/home/ubuntu/new_key_path.pem"
 
-# Check if the KEY_PATH environment variable is set and the key file exists
-if [ -z "$KEY_PATH" ] || [ ! -f "$KEY_PATH" ]; then
-    echo "KEY_PATH env var is expected and should point to an existing private key file."
+# Check if the key file exists
+if [ ! -f "$KEY_PATH" ]; then
+    echo "The key file at KEY_PATH does not exist. Please check the path and try again."
     exit 2
 fi
 

@@ -42,7 +42,7 @@ echo "Server Certificate saved to $CERT_FILE"
 echo "Verifying Server Certificate..."
 if ! openssl verify -CAfile $CA_CERT $CERT_FILE > /dev/null 2>&1; then
     echo "Server Certificate is invalid."
-    exit 5
+    exit 6
 fi
 
 echo "Server Certificate is valid."

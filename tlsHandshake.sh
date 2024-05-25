@@ -1,77 +1,59 @@
 #!/bin/bash
 
-# Ensure the script is executed with a server IP
+# Check if server IP is provided
 if [ "$#" -ne 1 ]; then
     echo "Usage: bash tlsHandshake.sh <server-ip>"
     exit 1
 fi
 
 SERVER_IP=$1
-SESSION_ID=""
-MASTER_KEY=""
-CERT_FILE="serverCert.pem"
-CA_CERT="$HOME/cert-ca-aws.pem"
-MASTER_KEY_FILE="master_key.txt"
 
-# Check if jq and openssl are installed
-if ! command -v jq &> /dev/null || ! command -v openssl &> /dev/null; then
-    echo "jq and openssl are required. Please install them before running this script."
-    exit 2
-fi
+# Step 1 - Send Client Hello
+echo "Sending Client Hello to the server..."
+CLIENT_HELLO_RESPONSE=$(curl -s -X POST "http://$SERVER_IP:8080/clienthello" \
+    -H "Content-Type: application/json" \
+    -d '{"version": "1.3", "ciphersSuites": ["TLS_AES_128_GCM_SHA256", "TLS_CHACHA20_POLY1305_SHA256"], "message": "Client Hello"}')
 
-# Send Client Hello
-echo "Sending Client Hello..."
-RESPONSE=$(curl -sf -X POST --data '{"version":"1.3", "ciphersSuites":["TLS_AES_128_GCM_SHA256","TLS_CHACHA20_POLY1305_SHA256"], "message":"Client Hello"}' http://$SERVER_IP:8080/clienthello -H "Content-Type: application/json")
-if [ $? -ne 0 ]; then
-    echo "Failed to send Client Hello."
-    exit 3
-fi
+# Extracting session ID and server certificate
+SESSION_ID=$(echo "$CLIENT_HELLO_RESPONSE" | jq -r '.sessionID')
+SERVER_CERT=$(echo "$CLIENT_HELLO_RESPONSE" | jq -r '.serverCert')
 
-# Extract session ID and server certificate
-SESSION_ID=$(echo $RESPONSE | jq -r '.sessionID')
-echo $RESPONSE | jq -r '.serverCert' > $CERT_FILE
-if [ -z "$SESSION_ID" ] || [ ! -s "$CERT_FILE" ]; then
-    echo "Failed to receive valid session ID or server certificate."
-    exit 4
-fi
+# Step 2 - Verify server's certificate
+echo "Storing server certificate..."
+echo "$SERVER_CERT" > serverCert.pem
 
-echo "Received Session ID: $SESSION_ID"
-echo "Server Certificate saved to $CERT_FILE"
-
-# Verify Server Certificate
-echo "Verifying Server Certificate..."
-if ! openssl verify -CAfile $CA_CERT $CERT_FILE > /dev/null 2>&1; then
+echo "Verifying server certificate..."
+openssl verify -CAfile ~/cert-ca-aws.pem serverCert.pem
+if [ "$?" -ne 0 ]; then
     echo "Server Certificate is invalid."
-    # Continue processing for test purposes but note the failure
-    TEST_CERT_INVALID=true
+    exit 5
 fi
 
-echo "Server Certificate is valid or test proceeding in invalid cert scenario."
-
-# Generate and send master key
-echo "Generating and Sending Master Key..."
+# Step 3 - Generate a 32-byte master key and encrypt it using the server's public key
+echo "Generating master key..."
 MASTER_KEY=$(openssl rand -base64 32)
-echo -n $MASTER_KEY > $MASTER_KEY_FILE
-ENCRYPTED_KEY=$(openssl smime -encrypt -aes-256-cbc -in $MASTER_KEY_FILE -outform DER $CERT_FILE | base64 -w 0)
-echo "Master Key: $MASTER_KEY"
-echo "Encrypted Master Key: $ENCRYPTED_KEY"
+echo "$MASTER_KEY" > masterKey.txt
 
-EXCHANGE_RESPONSE=$(curl -sf -X POST --data "{\"sessionID\":\"$SESSION_ID\", \"masterKey\":\"$ENCRYPTED_KEY\", \"sampleMessage\":\"Hi server, please encrypt me and send to client!\"}" http://$SERVER_IP:8080/keyexchange -H "Content-Type: application/json")
-if [ $? -ne 0 ]; then
-    echo "Failed to send master key exchange request."
-    exit 8
-fi
+echo "Encrypting master key..."
+ENCRYPTED_MASTER_KEY=$(openssl smime -encrypt -aes-256-cbc -in masterKey.txt -outform DER serverCert.pem | base64 -w 0)
+
+# Step 4 - Send the encrypted master key to the server
+echo "Exchanging keys with the server..."
+KEY_EXCHANGE_RESPONSE=$(curl -s -X POST "http://$SERVER_IP:8080/keyexchange" \
+    -H "Content-Type: application/json" \
+    -d "{\"sessionID\": \"$SESSION_ID\", \"masterKey\": \"$ENCRYPTED_MASTER_KEY\", \"sampleMessage\": \"Hi server, please encrypt me and send to client!\"}")
+
+# Extract encrypted sample message
+ENCRYPTED_SAMPLE_MESSAGE=$(echo "$KEY_EXCHANGE_RESPONSE" | jq -r '.encryptedSampleMessage')
 
 # Decrypt the sample message
-ENCRYPTED_MESSAGE=$(echo $EXCHANGE_RESPONSE | jq -r '.encryptedSampleMessage' | base64 -d)
-DECRYPTED_MESSAGE=$(echo "$ENCRYPTED_MESSAGE" | openssl enc -d -aes-256-cbc -pbkdf2 -k $MASTER_KEY)
-if [ $? -ne 0 ] || [ "$DECRYPTED_MESSAGE" != "Hi server, please encrypt me and send to client!" ]; then
+echo "Decrypting the sample message..."
+DECRYPTED_MESSAGE=$(echo "$ENCRYPTED_SAMPLE_MESSAGE" | base64 -d | openssl enc -d -aes-256-cbc -pbkdf2 -k "$MASTER_KEY")
+
+# Verify decryption
+if [ "$DECRYPTED_MESSAGE" != "Hi server, please encrypt me and send to client!" ]; then
     echo "Server symmetric encryption using the exchanged master-key has failed."
-    if [ "$TEST_CERT_INVALID" == true ]; then
-        exit 6  # This assumes the wrong message encryption is linked to the cert issue
-    else
-        exit 6
-    fi
+    exit 6
 fi
 
-echo "Client-Server TLS handshake has been completed successfully."
+echo "Client-Server TLS handshake has been completed successfully"

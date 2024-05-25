@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Usage check
+# Ensure the script is executed with a server IP
 if [ "$#" -ne 1 ]; then
     echo "Usage: bash tlsHandshake.sh <server-ip>"
     exit 1
@@ -42,7 +42,7 @@ echo "Server Certificate saved to $CERT_FILE"
 echo "Verifying Server Certificate..."
 if ! openssl verify -CAfile $CA_CERT $CERT_FILE > /dev/null 2>&1; then
     echo "Server Certificate is invalid."
-    exit 6
+    exit 5
 fi
 
 echo "Server Certificate is valid."
@@ -52,12 +52,18 @@ echo "Generating and Sending Master Key..."
 MASTER_KEY=$(openssl rand -base64 32)
 echo -n $MASTER_KEY > $MASTER_KEY_FILE
 ENCRYPTED_KEY=$(openssl smime -encrypt -aes-256-cbc -in $MASTER_KEY_FILE -outform DER $CERT_FILE | base64 -w 0)
+echo "Master Key: $MASTER_KEY"
+echo "Encrypted Master Key: $ENCRYPTED_KEY"
+
 EXCHANGE_RESPONSE=$(curl -sf -X POST --data "{\"sessionID\":\"$SESSION_ID\", \"masterKey\":\"$ENCRYPTED_KEY\", \"sampleMessage\":\"Hi server, please encrypt me and send to client!\"}" http://$SERVER_IP:8080/keyexchange -H "Content-Type: application/json")
+if [ $? -ne 0 ]; then
+    echo "Failed to send master key exchange request."
+    exit 8
+fi
 
 # Decrypt the sample message
 ENCRYPTED_MESSAGE=$(echo $EXCHANGE_RESPONSE | jq -r '.encryptedSampleMessage' | base64 -d)
 DECRYPTED_MESSAGE=$(echo "$ENCRYPTED_MESSAGE" | openssl enc -d -aes-256-cbc -pbkdf2 -k $MASTER_KEY)
-
 if [ $? -ne 0 ] || [ "$DECRYPTED_MESSAGE" != "Hi server, please encrypt me and send to client!" ]; then
     echo "Server symmetric encryption using the exchanged master-key has failed."
     exit 6

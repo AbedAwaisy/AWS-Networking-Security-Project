@@ -22,8 +22,20 @@ SERVER_CERT=$(echo "$CLIENT_HELLO_RESPONSE" | jq -r '.serverCert')
 echo "Storing server certificate..."
 echo "$SERVER_CERT" > serverCert.pem
 
+#  Download CA certificate
+echo "Downloading CA certificate using wget..."
+wget -q -O cert-ca-aws.pem https://alonitac.github.io/DevOpsTheHardWay/networking_project/cert-ca-aws.pem
+
+if [ ! -f cert-ca-aws.pem ]; then
+    echo "Failed to download CA certificate."
+    exit 2
+fi
+
+echo "Storing server certificate..."
+echo "$SERVER_CERT" > serverCert.pem
+
 echo "Verifying server certificate..."
-openssl verify -CAfile ~/cert-ca-aws.pem serverCert.pem
+openssl verify -CAfile cert-ca-aws.pem serverCert.pem
 if [ "$?" -ne 0 ]; then
     echo "Server Certificate is invalid."
     exit 5
